@@ -10,7 +10,6 @@ app = Flask(__name__)
 BOT_TOKEN = "8941579511:AAEOeBbL2BhOAOqgiRxtap1YCULDldwIoyk"
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 RENDER_URL = "https://crypto-bot-cfzt.onrender.com"
-TRACKED_COIN = "bitcoin" 
 
 # --- KEEP ALIVE BACKGROUND TASK ---
 def keep_alive_loop():
@@ -23,21 +22,6 @@ def keep_alive_loop():
         except Exception as e:
             print(f"Keep-alive ping failed: {e}")
         time.sleep(300)
-
-# --- CRYPTO TRACKER BACKGROUND TASK ---
-def crypto_tracker_loop():
-    """Watches crypto prices every 60 seconds."""
-    print("Crypto tracking system initialized...")
-    while True:
-        try:
-            url = f"https://api.coingecko.com/api/v3/simple/price?ids={TRACKED_COIN}&vs_currencies=usd"
-            response = requests.get(url).json()
-            if TRACKED_COIN in response:
-                current_price = response[TRACKED_COIN]["usd"]
-                print(f"Current {TRACKED_COIN.upper()} Price: ${current_price}")
-        except Exception as e:
-            print(f"Market fetch error: {e}")
-        time.sleep(60)
 
 # --- TELEGRAM BOT LOGIC ---
 def get_updates(last_update_id):
@@ -63,28 +47,45 @@ def bot_loop():
             last_update_id = update["update_id"]
             message = update.get("message", {})
             chat_id = message.get("chat", {}).get("id")
-            text = message.get("text", "")
+            text = message.get("text", "").strip()
 
             if text:
                 print(f"Received message: {text}")
-                if text.lower() == "/price":
+                
+                # Check if the user used the /price command
+                if text.lower().startswith("/price"):
+                    # Split the message into parts (e.g., ['/price', 'solana'])
+                    parts = text.split()
+                    
+                    if len(parts) < 2:
+                        send_message(chat_id, "💡 Please provide a coin name! Example: /price solana or /price ethereum")
+                        continue
+                    
+                    # Get the coin name the user typed
+                    target_coin = parts[1].lower()
+                    
                     try:
-                        url = f"https://api.coingecko.com/api/v3/simple/price?ids={TRACKED_COIN}&vs_currencies=usd"
-                        price = requests.get(url).json()[TRACKED_COIN]["usd"]
-                        send_message(chat_id, f"💰 The current price of {TRACKED_COIN.upper()} is ${price} USD.")
-                    except:
-                        send_message(chat_id, "⚠️ Could not retrieve market data right now.")
+                        # Fetch the custom coin price from CoinGecko
+                        url = f"https://api.coingecko.com/api/v3/simple/price?ids={target_coin}&vs_currencies=usd"
+                        response = requests.get(url).json()
+                        
+                        if target_coin in response and "usd" in response[target_coin]:
+                            price = response[target_coin]["usd"]
+                            send_message(chat_id, f"💰 The current price of {target_coin.upper()} is ${price:,} USD.")
+                        else:
+                            send_message(chat_id, f"⚠️ Could not find a coin named '{target_coin}' on CoinGecko. Double-check the spelling!")
+                    except Exception as e:
+                        print(f"API Error: {e}")
+                        send_message(chat_id, "⚠️ Market data service is temporarily busy. Try again in a moment!")
                 else:
-                    send_message(chat_id, f"🤖 Radar active. Use /price to check current market status.")
+                    send_message(chat_id, f"🤖 Multi-Crypto Radar active!\n\nUse `/price coin-name` to check any token.\nExample:\n• `/price bitcoin`\n• `/price solana`")
         time.sleep(1)
 
 @app.route("/")
 def index():
-    return "Bot is alive and running!"
+    return "Multi-Coin Bot is alive and running!"
 
-# This launches all three background systems smoothly together when the file boots up
 if __name__ == "__main__":
     threading.Thread(target=keep_alive_loop, daemon=True).start()
-    threading.Thread(target=crypto_tracker_loop, daemon=True).start()
     threading.Thread(target=bot_loop, daemon=True).start()
     app.run(host="0.0.0.0", port=8080)
