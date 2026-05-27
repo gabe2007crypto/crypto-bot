@@ -7,52 +7,37 @@ from flask import Flask
 app = Flask(__name__)
 
 # --- CONFIGURATION ---
-# Paste your actual Telegram token inside the quotes below
 BOT_TOKEN = "8941579511:AAEOeBbL2BhOAOqgiRxtap1YCULDldwIoyk"
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
-
-# Paste your unique Render Web Service URL below so the bot can keep itself awake!
 RENDER_URL = "https://crypto-bot-cfzt.onrender.com"
-
-# The crypto coin ID from CoinGecko (e.g., 'bitcoin', 'ethereum', 'solana')
 TRACKED_COIN = "bitcoin" 
 
 # --- KEEP ALIVE BACKGROUND TASK ---
 def keep_alive_loop():
     """Pings the server every 5 minutes so Render never falls asleep."""
-    time.sleep(20) # Wait for server to fully boot up first
+    time.sleep(20)
     while True:
         try:
             print("Sending keep-alive heartbeat...")
             requests.get(RENDER_URL)
         except Exception as e:
             print(f"Keep-alive ping failed: {e}")
-        time.sleep(300) # 300 seconds = 5 minutes
+        time.sleep(300)
 
 # --- CRYPTO TRACKER BACKGROUND TASK ---
 def crypto_tracker_loop():
-    """Watches crypto prices and handles automated market checks."""
+    """Watches crypto prices every 60 seconds."""
     print("Crypto tracking system initialized...")
-    last_price = None
-    
     while True:
         try:
-            # Fetch real-time price from free public feed
             url = f"https://api.coingecko.com/api/v3/simple/price?ids={TRACKED_COIN}&vs_currencies=usd"
             response = requests.get(url).json()
-            
             if TRACKED_COIN in response:
                 current_price = response[TRACKED_COIN]["usd"]
                 print(f"Current {TRACKED_COIN.upper()} Price: ${current_price}")
-                
-                # Right now, it just tracks and prints. 
-                # Next, we will insert the math logic to compare 'current_price' with 'last_price' for pumps!
-                last_price = current_price
-
         except Exception as e:
             print(f"Market fetch error: {e}")
-            
-        time.sleep(60) # Check the price every 60 seconds
+        time.sleep(60)
 
 # --- TELEGRAM BOT LOGIC ---
 def get_updates(last_update_id):
@@ -60,7 +45,6 @@ def get_updates(last_update_id):
         url = f"{BASE_URL}/getUpdates?offset={last_update_id + 1}"
         return requests.get(url).json()
     except Exception as e:
-        print(f"Network error: {e}")
         return {"result": []}
 
 def send_message(chat_id, text):
@@ -82,9 +66,8 @@ def bot_loop():
             text = message.get("text", "")
 
             if text:
-                print(f"Received: {text}")
+                print(f"Received message: {text}")
                 if text.lower() == "/price":
-                    # Instant price check command for users
                     try:
                         url = f"https://api.coingecko.com/api/v3/simple/price?ids={TRACKED_COIN}&vs_currencies=usd"
                         price = requests.get(url).json()[TRACKED_COIN]["usd"]
@@ -99,11 +82,9 @@ def bot_loop():
 def index():
     return "Bot is alive and running!"
 
+# This launches all three background systems smoothly together when the file boots up
 if __name__ == "__main__":
-    # Start all three systems together seamlessly using background threads
     threading.Thread(target=keep_alive_loop, daemon=True).start()
     threading.Thread(target=crypto_tracker_loop, daemon=True).start()
     threading.Thread(target=bot_loop, daemon=True).start()
-    
-    # Run the web server Render expects
     app.run(host="0.0.0.0", port=8080)
