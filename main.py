@@ -10,15 +10,12 @@ app = Flask(__name__)
 BOT_TOKEN = "8941579511:AAEOeBbL2BhOAOqgiRxtap1YCULDldwIoyk"
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 RENDER_URL = "https://crypto-bot-cfzt.onrender.com"
+API_KEY = "CG-6dMY9ZoDuzPb74dPCT7gu4VM"
 
-# 🔍 PASTE YOUR USERINFOBOT NUMBER INSIDE THESE QUOTES:
+# 🔍 Your UserInfoBot Chat ID:
 ALERT_CHAT_ID = "6832227515"
 
-# Trigger percentage for automated background alerts (e.g., 5.0 = 5%)
-PUMP_THRESHOLD_PERCENT = 0.1
-
 # --- TIER 1: THE VIP RADAR LIST ---
-# These are the coins the bot actively monitors 24/7 for automated pump alerts.
 COIN_MAPPING = {
     "btc": "bitcoin",
     "eth": "ethereum",
@@ -31,61 +28,65 @@ COIN_MAPPING = {
     "pepe": "pepe"
 }
 
-     PRICE_MEMORY = {}           
-# --- AUTOMATED PUMP DETECTOR (ROLLING MEMORY UPGRADE) ---
+# --- KEEP ALIVE LOGIC ---
+def keep_alive_loop():
+    print("📡 Keep-alive background pinger initialized...")
+    while True:
+        try:
+            requests.get(RENDER_URL)
+            print("🔄 Successfully pinged Render instance to maintain activity.")
+        except Exception as e:
+            print(f"Keep-alive ping warning: {e}")
+        time.sleep(300) # Ping server every 5 minutes
+
+# --- 24-HOUR SMART MARKET RADAR (Runs every 3 hours) ---
 def pump_detector_loop():
-    global PRICE_MEMORY
-    print("🚨 Automated Pump Radar initialized and scanning...")
+    print("🚨 Smart Market Radar initialized...")
     time.sleep(10)
+    
     while True:
         try:
             coin_ids = ",".join(COIN_MAPPING.values())
-            url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_ids}&vs_currencies=usd"
-            response = requests.get(url).json()
+            # Targets the markets endpoint for structural 24h percentage changes using your key
+            url = f"https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids={coin_ids}&x_cg_demo_api_key={API_KEY}"
             
-            for symbol, coin_id in COIN_MAPPING.items():
-                if coin_id in response and "usd" in response[coin_id]:
-                    current_price = response[coin_id]["usd"]
-                    
-                    # If this is the first time seeing the coin, create a list to hold past prices
-                    if coin_id not in PRICE_MEMORY:
-                        PRICE_MEMORY[coin_id] = [current_price]
-                        continue
-                    
-                    # Compare current price to the OLDER price from 30 minutes ago (first item in our history)
-                    baseline_price = PRICE_MEMORY[coin_id][0]
-                    price_change_pct = ((current_price - baseline_price) / baseline_price) * 100
-                    
-                    if price_change_pct >= PUMP_THRESHOLD_PERCENT:
-                        if current_price < 0.000001:
-                            p_str = f"${current_price:.10f}"
-                        elif current_price < 1.0:
-                            p_str = f"${current_price:.6f}"
-                        else:
-                            p_str = f"${current_price:,} USD"
-                            
-                        alert_msg = (
-                            f"🚨 **PUMP RADAR ALERT** 🚨\n\n"
-                            f"🔥 **{symbol.upper()}** is skyrocketing!\n"
-                            f"📈 **Growth:** +{price_change_pct:.2f}% (30m window)\n"
-                            f"💰 **Current Price:** {p_str}"
-                        )
-                        send_message(ALERT_CHAT_ID, alert_msg)
-                        
-                        # Reset the baseline after alerting so it doesn't spam you
-                        PRICE_MEMORY[coin_id] = [current_price]
-                    else:
-                        # Add the new price to history
-                        PRICE_MEMORY[coin_id].append(current_price)
-                        # Keep only the last 30 minutes of data (checking every 1 minute = 30 items)
-                        if len(PRICE_MEMORY[coin_id]) > 30:
-                            PRICE_MEMORY[coin_id].pop(0)
-                            
+            response = requests.get(url)
+            data = response.json()
+            
+            report_lines = []
+            
+            for coin in data:
+                symbol = coin.get('symbol', '').upper()
+                price = coin.get('current_price', 0)
+                change_24h = coin.get('price_change_percentage_24h', 0)
+                
+                if price is None:
+                    continue
+                
+                # Ultra-clean decimal formatter accommodating micro-caps
+                if price < 0.000001:
+                    p_str = f"${price:.10f}"
+                elif price < 1.0:
+                    p_str = f"${price:.6f}"
+                else:
+                    p_str = f"${price:,} USD"
+                
+                # Visual indicators for tracking positive vs negative performance
+                emoji = "🟢" if change_24h and change_24h >= 0 else "🔴"
+                sign = "+" if change_24h and change_24h >= 0 else ""
+                
+                report_lines.append(f"{emoji} **{symbol}**: {p_str} ({sign}{change_24h:.2f}% 24h)")
+            
+            # Send ONE clean compiled summary layout instead of repetitive text bombs
+            if report_lines:
+                alert_msg = "🚨 **3-HOUR VIP RADAR UPDATE** 🚨\n\n" + "\n".join(report_lines)
+                send_message(ALERT_CHAT_ID, alert_msg)
+                
         except Exception as e:
-            print(f"Pump tracking error: {e}")
-        
-        # Check the market every 60 seconds so it catches moves instantly!
-        time.sleep(60)                                
+            print(f"Radar Engine error: {e}")
+            
+        # Put the background script to sleep for exactly 3 hours (10800 seconds)
+        time.sleep(10800)
 
 # --- TELEGRAM BOT LOGIC ---
 def get_updates(last_update_id):
@@ -154,17 +155,14 @@ def bot_loop():
                         continue
                     
                     user_input = parts[1].lower()
-                    
-                    # First, check if it's in our VIP radar list
                     target_coin = COIN_MAPPING.get(user_input)
                     
                     try:
-                        # If it's NOT in the VIP list, dynamically search the global database!
+                        # If NOT in VIP list, search global database with API key applied
                         if not target_coin:
-                            search_url = f"https://api.coingecko.com/api/v3/search?query={user_input}"
+                            search_url = f"https://api.coingecko.com/api/v3/search?query={user_input}&x_cg_demo_api_key={API_KEY}"
                             search_res = requests.get(search_url).json()
                             
-                            # If the search finds a match, grab the exact ID
                             if search_res.get("coins") and len(search_res["coins"]) > 0:
                                 target_coin = search_res["coins"][0]["id"]
                                 actual_symbol = search_res["coins"][0]["symbol"]
@@ -174,14 +172,13 @@ def bot_loop():
                         else:
                             actual_symbol = user_input.upper()
 
-                        # Now fetch the actual price using the ID
-                        url = f"https://api.coingecko.com/api/v3/simple/price?ids={target_coin}&vs_currencies=usd"
+                        # Pull live on-demand single price using API key
+                        url = f"https://api.coingecko.com/api/v3/simple/price?ids={target_coin}&vs_currencies=usd&x_cg_demo_api_key={API_KEY}"
                         response = requests.get(url).json()
                         
                         if target_coin in response and "usd" in response[target_coin]:
                             price = response[target_coin]["usd"]
                             
-                            # Smart formatting
                             if price < 0.000001:
                                 price_str = f"${price:.10f}"
                             elif price < 1.0:
@@ -194,9 +191,9 @@ def bot_loop():
                             send_message(chat_id, f"⚠️ Could not pull price data for '{actual_symbol.upper()}'.")
                             
                     except Exception as e:
-                        send_message(chat_id, "⚠️ Market server busy. Try again soon!")
+                        send_message(chat_id, f"⚠️ Price fetch error. Try again soon!")
                 
-                # 4. Fallback for unexpected messages
+                # 4. Fallback for unexpected inputs
                 else:
                     send_message(chat_id, "🤖 Commands unrecognized.\n\nUse `/start` to view the welcome layout or `/help` to view available tokens.")
         time.sleep(1)
