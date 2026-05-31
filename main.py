@@ -31,9 +31,8 @@ COIN_MAPPING = {
     "pepe": "pepe"
 }
 
-PRICE_MEMORY = {}
-
-# --- AUTOMATED PUMP DETECTOR ---
+     PRICE_MEMORY = {}           
+# --- AUTOMATED PUMP DETECTOR (ROLLING MEMORY UPGRADE) ---
 def pump_detector_loop():
     global PRICE_MEMORY
     print("🚨 Automated Pump Radar initialized and scanning...")
@@ -47,37 +46,46 @@ def pump_detector_loop():
             for symbol, coin_id in COIN_MAPPING.items():
                 if coin_id in response and "usd" in response[coin_id]:
                     current_price = response[coin_id]["usd"]
-                    previous_price = PRICE_MEMORY.get(coin_id)
                     
-                    if previous_price is not None:
-                        price_change_pct = ((current_price - previous_price) / previous_price) * 100
-                        if price_change_pct >= PUMP_THRESHOLD_PERCENT:
-                            if current_price < 0.000001:
-                                p_str = f"${current_price:.10f}"
-                            elif current_price < 1.0:
-                                p_str = f"${current_price:.6f}"
-                            else:
-                                p_str = f"${current_price:,} USD"
-                                
-                            alert_msg = (
-                                f"🚨 **PUMP RADAR ALERT** 🚨\n\n"
-                                f"🔥 **{symbol.upper()}** is skyrocketing!\n"
-                                f"📈 **Growth:** +{price_change_pct:.2f}%\n"
-                                f"💰 **Current Price:** {p_str}"
-                            )
-                            send_message(ALERT_CHAT_ID, alert_msg)
-                    PRICE_MEMORY[coin_id] = current_price
+                    # If this is the first time seeing the coin, create a list to hold past prices
+                    if coin_id not in PRICE_MEMORY:
+                        PRICE_MEMORY[coin_id] = [current_price]
+                        continue
+                    
+                    # Compare current price to the OLDER price from 30 minutes ago (first item in our history)
+                    baseline_price = PRICE_MEMORY[coin_id][0]
+                    price_change_pct = ((current_price - baseline_price) / baseline_price) * 100
+                    
+                    if price_change_pct >= PUMP_THRESHOLD_PERCENT:
+                        if current_price < 0.000001:
+                            p_str = f"${current_price:.10f}"
+                        elif current_price < 1.0:
+                            p_str = f"${current_price:.6f}"
+                        else:
+                            p_str = f"${current_price:,} USD"
+                            
+                        alert_msg = (
+                            f"🚨 **PUMP RADAR ALERT** 🚨\n\n"
+                            f"🔥 **{symbol.upper()}** is skyrocketing!\n"
+                            f"📈 **Growth:** +{price_change_pct:.2f}% (30m window)\n"
+                            f"💰 **Current Price:** {p_str}"
+                        )
+                        send_message(ALERT_CHAT_ID, alert_msg)
+                        
+                        # Reset the baseline after alerting so it doesn't spam you
+                        PRICE_MEMORY[coin_id] = [current_price]
+                    else:
+                        # Add the new price to history
+                        PRICE_MEMORY[coin_id].append(current_price)
+                        # Keep only the last 30 minutes of data (checking every 1 minute = 30 items)
+                        if len(PRICE_MEMORY[coin_id]) > 30:
+                            PRICE_MEMORY[coin_id].pop(0)
+                            
         except Exception as e:
             print(f"Pump tracking error: {e}")
-        time.sleep(300)
-
-# --- KEEP ALIVE BACKGROUND TASK ---
-def keep_alive_loop():
-    time.sleep(20)
-    while True:
-        try: requests.get(RENDER_URL)
-        except: pass
-        time.sleep(300)
+        
+        # Check the market every 60 seconds so it catches moves instantly!
+        time.sleep(60)                                
 
 # --- TELEGRAM BOT LOGIC ---
 def get_updates(last_update_id):
