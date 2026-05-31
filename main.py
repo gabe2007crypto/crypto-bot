@@ -15,7 +15,7 @@ RENDER_URL = "https://crypto-bot-cfzt.onrender.com"
 ALERT_CHAT_ID = "6832227515"
 
 # Trigger percentage for automated background alerts (e.g., 5.0 = 5%)
-PUMP_THRESHOLD_PERCENT = 5.0
+PUMP_THRESHOLD_PERCENT = 0.1
 
 # --- TIER 1: THE VIP RADAR LIST ---
 # These are the coins the bot actively monitors 24/7 for automated pump alerts.
